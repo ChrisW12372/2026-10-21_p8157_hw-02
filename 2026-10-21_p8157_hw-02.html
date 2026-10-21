@@ -2096,6 +2096,240 @@ structure.</p>
 marginal variance was 80,797.74 under REML, compared with 0.567 and
 80,305.95 under ML.</p>
 </div>
+<div id="question-d" class="section level1" number="4">
+<h1><span class="header-section-number">4</span> question d</h1>
+<pre class="r"><code># Extract one viral load value per participant
+vl_person &lt;- df_model |&gt;
+  distinct(id, vload)
+
+# Calculate participant-level tertile cutoffs
+vl_cutoffs &lt;- quantile(
+  vl_person$vload,
+  probs = c(1 / 3, 2 / 3),
+  names = FALSE
+)
+
+# Define the low, middle, and high viral load groups
+vl_person &lt;- vl_person |&gt;
+  mutate(
+    vl_group = cut(
+      vload,
+      breaks = c(-Inf, vl_cutoffs, Inf),
+      labels = c(&quot;Low&quot;, &quot;Middle&quot;, &quot;High&quot;)
+    )
+  )</code></pre>
+<pre class="r"><code># Check the cutoffs and participant counts
+vl_cutoffs</code></pre>
+<pre><code>## [1] 11665.33 54907.33</code></pre>
+<pre class="r"><code>count(vl_person, vl_group)</code></pre>
+<pre><code>##   vl_group  n
+## 1      Low 75
+## 2   Middle 75
+## 3     High 75</code></pre>
+<pre class="r"><code># Add group membership to the longitudinal data
+df_cat &lt;- df_model |&gt;
+  left_join(
+    vl_person |&gt; select(id, vl_group),
+    by = &quot;id&quot;
+  )
+
+# Use the low viral load group as the reference category
+df_cat$vl_group &lt;- relevel(df_cat$vl_group, ref = &quot;Low&quot;)
+contrasts(df_cat$vl_group) &lt;- contr.treatment(
+  levels(df_cat$vl_group),
+  base = 1
+)</code></pre>
+<pre class="r"><code># Fit the categorical viral load model using CS and REML
+fit_cat &lt;- gls(
+  cd4 ~ month * vl_group,
+  data = df_cat,
+  correlation = corCompSymm(form = ~ 1 | id),
+  method = &quot;REML&quot;
+)
+
+summary(fit_cat)</code></pre>
+<pre><code>## Generalized least squares fit by REML
+##   Model: cd4 ~ month * vl_group 
+##   Data: df_cat 
+##        AIC      BIC    logLik
+##   22909.58 22952.99 -11446.79
+## 
+## Correlation Structure: Compound symmetry
+##  Formula: ~1 | id 
+##  Parameter estimate(s):
+##      Rho 
+## 0.585048 
+## 
+## Coefficients:
+##                          Value Std.Error    t-value p-value
+## (Intercept)           802.1058  29.23173  27.439556  0.0000
+## month                  -5.7009   0.54927 -10.378987  0.0000
+## vl_groupMiddle        -21.7193  41.21837  -0.526933  0.5983
+## vl_groupHigh         -133.2159  41.40063  -3.217726  0.0013
+## month:vl_groupMiddle   -2.5957   0.76222  -3.405422  0.0007
+## month:vl_groupHigh     -0.8165   0.78374  -1.041770  0.2977
+## 
+##  Correlation: 
+##                      (Intr) month  vl_grM vl_grH mnt:_M
+## month                -0.400                            
+## vl_groupMiddle       -0.709  0.284                     
+## vl_groupHigh         -0.706  0.282  0.501              
+## month:vl_groupMiddle  0.288 -0.721 -0.396 -0.203       
+## month:vl_groupHigh    0.280 -0.701 -0.199 -0.401  0.505
+## 
+## Standardized residuals:
+##        Min         Q1        Med         Q3        Max 
+## -1.9866415 -0.7166885 -0.1512801  0.5280207  8.1185037 
+## 
+## Residual standard error: 288.9831 
+## Degrees of freedom: 1684 total; 1678 residual</code></pre>
+<pre class="r"><code># Reuse the coefficient extraction function from part (c)
+cat_results &lt;- extract_results(fit_cat, &quot;REML&quot;)
+
+cat_results |&gt;
+  mutate(
+    across(c(Estimate, SE, CI_lower, CI_upper), ~ round(.x, 3)),
+    p_value = format.pval(p_value, digits = 3, eps = 0.001)
+  ) |&gt;
+  knitr::kable()</code></pre>
+<table>
+<colgroup>
+<col width="10%" />
+<col width="30%" />
+<col width="12%" />
+<col width="10%" />
+<col width="12%" />
+<col width="12%" />
+<col width="11%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Method</th>
+<th align="left">Term</th>
+<th align="right">Estimate</th>
+<th align="right">SE</th>
+<th align="right">CI_lower</th>
+<th align="right">CI_upper</th>
+<th align="left">p_value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="left">(Intercept)</td>
+<td align="right">802.106</td>
+<td align="right">29.232</td>
+<td align="right">744.771</td>
+<td align="right">859.440</td>
+<td align="left">&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="left">month</td>
+<td align="right">-5.701</td>
+<td align="right">0.549</td>
+<td align="right">-6.778</td>
+<td align="right">-4.624</td>
+<td align="left">&lt; 0.001</td>
+</tr>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="left">vl_groupMiddle</td>
+<td align="right">-21.719</td>
+<td align="right">41.218</td>
+<td align="right">-102.564</td>
+<td align="right">59.125</td>
+<td align="left">0.59831</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="left">vl_groupHigh</td>
+<td align="right">-133.216</td>
+<td align="right">41.401</td>
+<td align="right">-214.418</td>
+<td align="right">-52.014</td>
+<td align="left">0.00132</td>
+</tr>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="left">month:vl_groupMiddle</td>
+<td align="right">-2.596</td>
+<td align="right">0.762</td>
+<td align="right">-4.091</td>
+<td align="right">-1.101</td>
+<td align="left">&lt; 0.001</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="left">month:vl_groupHigh</td>
+<td align="right">-0.816</td>
+<td align="right">0.784</td>
+<td align="right">-2.354</td>
+<td align="right">0.721</td>
+<td align="left">0.29767</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code># Extract the covariance parameter estimates
+extract_covariance(fit_cat, &quot;REML&quot;) |&gt;
+  knitr::kable(digits = 3)</code></pre>
+<table>
+<thead>
+<tr class="header">
+<th align="left">Method</th>
+<th align="right">Correlation</th>
+<th align="right">Variance</th>
+<th align="right">SD</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="right">0.585</td>
+<td align="right">83511.22</td>
+<td align="right">288.983</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code># Perform Wald F-tests for the model terms
+wald_results &lt;- anova(fit_cat, type = &quot;marginal&quot;)
+
+wald_results</code></pre>
+<pre><code>## Denom. DF: 1678 
+##                numDF  F-value p-value
+## (Intercept)        1 752.9292  &lt;.0001
+## month              1 107.7234  &lt;.0001
+## vl_group           2   5.9615  0.0026
+## month:vl_group     2   6.1071  0.0023</code></pre>
+<pre class="r"><code># Extract the joint test of the time-by-group interaction
+wald_results[
+  &quot;month:vl_group&quot;,
+  ,
+  drop = FALSE
+]</code></pre>
+<pre><code>## Denom. DF: 1678 
+##                numDF  F-value p-value
+## month:vl_group     2 6.107087  0.0023</code></pre>
+<p>Baseline viral load was divided into tertiles using cutoffs of
+11,665.33 and 54,907.33, with 75 participants per group. A GLS model
+with compound symmetry was fitted using REML.</p>
+<p>In the low viral load group, the estimated mean CD4 count at month 0
+was 802.11, with an average decline of 5.70 per month. Compared with
+this group, baseline CD4 was 21.72 lower in the middle group (95% CI:
+−102.56 to 59.13; p = 0.598) and 133.22 lower in the high group (95% CI:
+−214.42 to −52.01; p = 0.0013).</p>
+<p>The middle group declined by an additional 2.60 per month compared
+with the low group (95% CI: −4.09 to −1.10; p &lt; 0.001). The high
+group declined by an additional 0.82 per month, although this difference
+was not significant (95% CI: −2.35 to 0.72; p = 0.298). The estimated
+monthly slopes were −5.70, −8.30, and −6.52 for the low, middle, and
+high groups, respectively.</p>
+<p>The joint test of the time-by-group interaction was significant (F(2,
+1678) = 6.11; p = 0.0023), indicating an association between baseline
+viral load category and CD4 decline under the CS model. However, the
+estimated decline did not increase monotonically across categories. The
+estimated within-participant correlation was 0.585.</p>
+</div>
 
 
 
