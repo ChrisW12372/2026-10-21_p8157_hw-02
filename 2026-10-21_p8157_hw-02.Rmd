@@ -14,6 +14,7 @@ output:
 
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)
+library(splines)
 
 load("data/MACS-VL.RData")
 df <- macsVL
@@ -196,13 +197,123 @@ ggplot(df_plot, aes(x = month, y = cd4)) +
 Baseline viral load was strongly right-skewed, and the log10 transformation substantially reduced the skewness. CD4 counts generally declined over time in all three viral load groups, with considerable variation across individuals. The middle and high viral load groups showed greater overall declines than the low viral load group, suggesting a possible association between higher baseline viral load and faster CD4 decline.
 
 
+# question b
 
 
+```{r}
+# Prepare complete observations for covariance exploration
+df_cov <- df |>
+  filter(
+    !is.na(id),
+    !is.na(month),
+    !is.na(cd4),
+    !is.na(vload),
+    vload > 0
+  ) |>
+  mutate(log10_vload = log10(vload)) |>
+  arrange(id, month)
+
+# Fit a flexible mean model before examining covariance
+mean_fit <- lm(
+  cd4 ~ ns(month, df = 3) * log10_vload,
+  data = df_cov
+)
+
+# Extract residuals without removing participant-specific differences
+df_cov <- df_cov |>
+  mutate(resid = residuals(mean_fit))
+```
 
 
+```{r}
+# Group observations into approximately six-month windows
+variance_summary <- df_cov |>
+  mutate(time_window = 6 * floor(month / 6)) |>
+  group_by(time_window) |>
+  summarise(
+    mean_month = mean(month),
+    n_obs = n(),
+    residual_variance = var(resid),
+    .groups = "drop"
+  )
+
+variance_summary
+```
 
 
+```{r}
+# Plot residual variance over follow-up time
+ggplot(
+  variance_summary,
+  aes(x = mean_month, y = residual_variance)
+) +
+  geom_line(color = "#4477AA") +
+  geom_point(aes(size = n_obs), color = "#4477AA") +
+  labs(
+    x = "Months since baseline",
+    y = "Residual variance",
+    size = "Observations"
+  ) +
+  theme_bw()
+```
 
+
+```{r}
+# Construct all distinct within-participant observation pairs
+pair_data <- df_cov |>
+  group_by(id) |>
+  group_modify(~ {
+    if (nrow(.x) < 2) {
+      return(tibble(lag = numeric(), semivariance = numeric()))
+    }
+
+    pair_index <- combn(seq_len(nrow(.x)), 2)
+    j <- pair_index[1, ]
+    k <- pair_index[2, ]
+
+    tibble(
+      lag = abs(.x$month[j] - .x$month[k]),
+      semivariance = 0.5 * (.x$resid[j] - .x$resid[k])^2
+    )
+  }) |>
+  ungroup() |>
+  filter(lag > 0)
+
+# Average semivariances within six-month lag intervals
+variogram_summary <- pair_data |>
+  mutate(lag_window = 6 * floor(lag / 6)) |>
+  group_by(lag_window) |>
+  summarise(
+    mean_lag = mean(lag),
+    semivariance = mean(semivariance),
+    n_pairs = n(),
+    .groups = "drop"
+  )
+
+variogram_summary
+```
+
+
+```{r}
+# Plot the empirical variogram
+ggplot(
+  variogram_summary,
+  aes(x = mean_lag, y = semivariance)
+) +
+  geom_line(color = "#CC6677") +
+  geom_point(aes(size = n_pairs), color = "#CC6677") +
+  labs(
+    x = "Time lag (months)",
+    y = "Semivariance",
+    size = "Observation pairs"
+  ) +
+  theme_bw()
+```
+
+
+After adjusting for the mean trajectory and baseline viral load, residual variance varied across follow-up periods without a clear monotonic trend. The estimate at month 48 was based on only 38 observations and should be interpreted cautiously. The empirical variogram generally increased with time lag, suggesting weaker within-participant correlation between measurements taken farther apart, although changing variances may also contribute to this pattern.
+
+A continuous-time AR(1), or exponential correlation structure, is therefore a reasonable candidate given the irregular observation times. Compound symmetry appears less suitable because it assumes constant correlation across time lags. Models allowing time-varying variances could also be considered.
 
 
 
