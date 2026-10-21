@@ -1505,8 +1505,10 @@ border-radius: 0px;
 </div>
 
 
+<p>The project is on GitHub: <a href="https://github.com/ChrisW12372/2026-10-21_p8157_hw-02.git" class="uri">https://github.com/ChrisW12372/2026-10-21_p8157_hw-02.git</a></p>
 <pre class="r"><code>library(tidyverse)
 library(splines)
+library(nlme)
 
 load(&quot;data/MACS-VL.RData&quot;)
 df &lt;- macsVL</code></pre>
@@ -1818,6 +1820,281 @@ therefore a reasonable candidate given the irregular observation times.
 Compound symmetry appears less suitable because it assumes constant
 correlation across time lags. Models allowing time-varying variances
 could also be considered.</p>
+</div>
+<div id="question-c" class="section level1" number="3">
+<h1><span class="header-section-number">3</span> question c</h1>
+<pre class="r"><code># Prepare the same analysis sample for both models
+df_model &lt;- df |&gt;
+  filter(
+    !is.na(id),
+    !is.na(month),
+    !is.na(cd4),
+    !is.na(vload),
+    vload &gt; 0
+  ) |&gt;
+  mutate(
+    id = factor(id),
+    log10_vload_c = log10(vload) - 4
+  ) |&gt;
+  arrange(id, month)</code></pre>
+<pre class="r"><code># Fit the model using maximum likelihood
+fit_ml &lt;- gls(
+  cd4 ~ month * log10_vload_c,
+  data = df_model,
+  correlation = corCompSymm(form = ~ 1 | id),
+  method = &quot;ML&quot;
+)</code></pre>
+<pre class="r"><code># Fit the same model using restricted maximum likelihood
+fit_reml &lt;- update(fit_ml, method = &quot;REML&quot;)</code></pre>
+<pre class="r"><code>summary(fit_ml)</code></pre>
+<pre><code>## Generalized least squares fit by maximum likelihood
+##   Model: cd4 ~ month * log10_vload_c 
+##   Data: df_model 
+##        AIC      BIC    logLik
+##   22928.55 22961.13 -11458.28
+## 
+## Correlation Structure: Compound symmetry
+##  Formula: ~1 | id 
+##  Parameter estimate(s):
+##       Rho 
+## 0.5672909 
+## 
+## Coefficients:
+##                        Value Std.Error   t-value p-value
+## (Intercept)         779.2651 17.874773  43.59580  0.0000
+## month                -6.5912  0.341835 -19.28196  0.0000
+## log10_vload_c       -82.2090 20.705429  -3.97041  0.0001
+## month:log10_vload_c  -0.8763  0.400088  -2.19021  0.0286
+## 
+##  Correlation: 
+##                     (Intr) month  lg10__
+## month               -0.409              
+## log10_vload_c       -0.392  0.160       
+## month:log10_vload_c  0.159 -0.385 -0.412
+## 
+## Standardized residuals:
+##        Min         Q1        Med         Q3        Max 
+## -2.2033453 -0.7040716 -0.1383408  0.5424951  8.3640477 
+## 
+## Residual standard error: 283.383 
+## Degrees of freedom: 1684 total; 1680 residual</code></pre>
+<pre class="r"><code>summary(fit_reml)</code></pre>
+<pre><code>## Generalized least squares fit by REML
+##   Model: cd4 ~ month * log10_vload_c 
+##   Data: df_model 
+##        AIC      BIC    logLik
+##   22914.05 22946.61 -11451.02
+## 
+## Correlation Structure: Compound symmetry
+##  Formula: ~1 | id 
+##  Parameter estimate(s):
+##       Rho 
+## 0.5693312 
+## 
+## Coefficients:
+##                        Value Std.Error   t-value p-value
+## (Intercept)         779.2696 17.921854  43.48153  0.0000
+## month                -6.5916  0.341674 -19.29206  0.0000
+## log10_vload_c       -82.2067 20.759622  -3.95993  0.0001
+## month:log10_vload_c  -0.8762  0.399902  -2.19106  0.0286
+## 
+##  Correlation: 
+##                     (Intr) month  lg10__
+## month               -0.408              
+## log10_vload_c       -0.392  0.160       
+## month:log10_vload_c  0.158 -0.385 -0.411
+## 
+## Standardized residuals:
+##        Min         Q1        Med         Q3        Max 
+## -2.1965586 -0.7019290 -0.1379146  0.5408349  8.3385249 
+## 
+## Residual standard error: 284.2494 
+## Degrees of freedom: 1684 total; 1680 residual</code></pre>
+<pre class="r"><code># Extract coefficient estimates and approximate t-based intervals
+extract_results &lt;- function(fit, method_label) {
+
+  tab &lt;- as.data.frame(summary(fit)$tTable)
+
+  residual_df &lt;- fit$dims$N - fit$dims$p
+  critical_value &lt;- qt(0.975, df = residual_df)
+
+  tibble(
+    Method = method_label,
+    Term = rownames(tab),
+    Estimate = tab[[&quot;Value&quot;]],
+    SE = tab[[&quot;Std.Error&quot;]],
+    CI_lower = Estimate - critical_value * SE,
+    CI_upper = Estimate + critical_value * SE,
+    p_value = tab[[&quot;p-value&quot;]]
+  )
+}
+
+coef_results &lt;- bind_rows(
+  extract_results(fit_ml, &quot;ML&quot;),
+  extract_results(fit_reml, &quot;REML&quot;)
+)
+
+# Display a compact coefficient table
+coef_results |&gt;
+  mutate(
+    across(c(Estimate, SE, CI_lower, CI_upper), ~ round(.x, 3)),
+    p_value = format.pval(p_value, digits = 3, eps = 0.001)
+  ) |&gt;
+  knitr::kable()</code></pre>
+<table>
+<colgroup>
+<col width="10%" />
+<col width="28%" />
+<col width="13%" />
+<col width="10%" />
+<col width="13%" />
+<col width="13%" />
+<col width="11%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Method</th>
+<th align="left">Term</th>
+<th align="right">Estimate</th>
+<th align="right">SE</th>
+<th align="right">CI_lower</th>
+<th align="right">CI_upper</th>
+<th align="left">p_value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">ML</td>
+<td align="left">(Intercept)</td>
+<td align="right">779.265</td>
+<td align="right">17.875</td>
+<td align="right">744.206</td>
+<td align="right">814.324</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="even">
+<td align="left">ML</td>
+<td align="left">month</td>
+<td align="right">-6.591</td>
+<td align="right">0.342</td>
+<td align="right">-7.262</td>
+<td align="right">-5.921</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="odd">
+<td align="left">ML</td>
+<td align="left">log10_vload_c</td>
+<td align="right">-82.209</td>
+<td align="right">20.705</td>
+<td align="right">-122.820</td>
+<td align="right">-41.598</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="even">
+<td align="left">ML</td>
+<td align="left">month:log10_vload_c</td>
+<td align="right">-0.876</td>
+<td align="right">0.400</td>
+<td align="right">-1.661</td>
+<td align="right">-0.092</td>
+<td align="left">0.0286</td>
+</tr>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="left">(Intercept)</td>
+<td align="right">779.270</td>
+<td align="right">17.922</td>
+<td align="right">744.118</td>
+<td align="right">814.421</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="left">month</td>
+<td align="right">-6.592</td>
+<td align="right">0.342</td>
+<td align="right">-7.262</td>
+<td align="right">-5.921</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="odd">
+<td align="left">REML</td>
+<td align="left">log10_vload_c</td>
+<td align="right">-82.207</td>
+<td align="right">20.760</td>
+<td align="right">-122.924</td>
+<td align="right">-41.489</td>
+<td align="left">&lt;0.001</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="left">month:log10_vload_c</td>
+<td align="right">-0.876</td>
+<td align="right">0.400</td>
+<td align="right">-1.661</td>
+<td align="right">-0.092</td>
+<td align="left">0.0286</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code># Extract the common within-participant correlation and marginal variance
+extract_covariance &lt;- function(fit, method_label) {
+
+  tibble(
+    Method = method_label,
+    Correlation = unname(
+      coef(fit$modelStruct$corStruct, unconstrained = FALSE)
+    ),
+    Variance = fit$sigma^2,
+    SD = fit$sigma
+  )
+}
+
+cov_results &lt;- bind_rows(
+  extract_covariance(fit_ml, &quot;ML&quot;),
+  extract_covariance(fit_reml, &quot;REML&quot;)
+)
+
+cov_results |&gt;
+  knitr::kable(digits = 3)</code></pre>
+<table>
+<thead>
+<tr class="header">
+<th align="left">Method</th>
+<th align="right">Correlation</th>
+<th align="right">Variance</th>
+<th align="right">SD</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">ML</td>
+<td align="right">0.567</td>
+<td align="right">80305.95</td>
+<td align="right">283.383</td>
+</tr>
+<tr class="even">
+<td align="left">REML</td>
+<td align="right">0.569</td>
+<td align="right">80797.74</td>
+<td align="right">284.249</td>
+</tr>
+</tbody>
+</table>
+<p>GLS models with compound symmetry gave nearly identical results using
+ML and REML. Based on REML, participants with a baseline viral load of
+10,000 had an estimated mean CD4 count of 779.27 at month 0 (95% CI:
+744.12–814.42), with an average decline of 6.59 per month (95% CI:
+5.92–7.26).</p>
+<p>Each tenfold increase in baseline viral load was associated with a
+82.21 lower mean CD4 count at month 0 (95% CI: 41.49–122.92 lower) and
+an additional decline of 0.88 per month (95% CI: 0.09–1.66; interaction
+p = 0.0286). Thus, higher baseline viral load was significantly
+associated with faster CD4 decline under the assumed covariance
+structure.</p>
+<p>The estimated within-participant correlation was 0.569, and the
+marginal variance was 80,797.74 under REML, compared with 0.567 and
+80,305.95 under ML.</p>
 </div>
 
 

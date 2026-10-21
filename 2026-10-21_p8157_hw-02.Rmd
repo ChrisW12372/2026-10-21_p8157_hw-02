@@ -11,10 +11,12 @@ output:
     css: style.css
 ---
 
+The project is on GitHub: https://github.com/ChrisW12372/2026-10-21_p8157_hw-02.git
 
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(splines)
+library(nlme)
 
 load("data/MACS-VL.RData")
 df <- macsVL
@@ -311,19 +313,119 @@ ggplot(
 ```
 
 
-After adjusting for the mean trajectory and baseline viral load, residual variance varied across follow-up periods without a clear monotonic trend. The estimate at month 48 was based on only 38 observations and should be interpreted cautiously. The empirical variogram generally increased with time lag, suggesting weaker within-participant correlation between measurements taken farther apart, although changing variances may also contribute to this pattern.
+After adjusting for the mean trajectory and baseline viral load, residual variance varied across follow-up periods without a clear monotonic trend. The estimate at month 48 was based on only 38 observations and should be interpreted cautiously. The empirical variogram generally increased with time lag, suggesting weaker within-participant correlation between measurements taken farther apart, although changing variances may also contribute to this pattern.  
 
 A continuous-time AR(1), or exponential correlation structure, is therefore a reasonable candidate given the irregular observation times. Compound symmetry appears less suitable because it assumes constant correlation across time lags. Models allowing time-varying variances could also be considered.
 
 
+# question c
+
+```{r}
+# Prepare the same analysis sample for both models
+df_model <- df |>
+  filter(
+    !is.na(id),
+    !is.na(month),
+    !is.na(cd4),
+    !is.na(vload),
+    vload > 0
+  ) |>
+  mutate(
+    id = factor(id),
+    log10_vload_c = log10(vload) - 4
+  ) |>
+  arrange(id, month)
+```
+
+
+```{r}
+# Fit the model using maximum likelihood
+fit_ml <- gls(
+  cd4 ~ month * log10_vload_c,
+  data = df_model,
+  correlation = corCompSymm(form = ~ 1 | id),
+  method = "ML"
+)
+```
+
+
+```{r}
+# Fit the same model using restricted maximum likelihood
+fit_reml <- update(fit_ml, method = "REML")
+```
+
+
+```{r}
+summary(fit_ml)
+summary(fit_reml)
+```
 
 
 
+```{r}
+# Extract coefficient estimates and approximate t-based intervals
+extract_results <- function(fit, method_label) {
+
+  tab <- as.data.frame(summary(fit)$tTable)
+
+  residual_df <- fit$dims$N - fit$dims$p
+  critical_value <- qt(0.975, df = residual_df)
+
+  tibble(
+    Method = method_label,
+    Term = rownames(tab),
+    Estimate = tab[["Value"]],
+    SE = tab[["Std.Error"]],
+    CI_lower = Estimate - critical_value * SE,
+    CI_upper = Estimate + critical_value * SE,
+    p_value = tab[["p-value"]]
+  )
+}
+
+coef_results <- bind_rows(
+  extract_results(fit_ml, "ML"),
+  extract_results(fit_reml, "REML")
+)
+
+# Display a compact coefficient table
+coef_results |>
+  mutate(
+    across(c(Estimate, SE, CI_lower, CI_upper), ~ round(.x, 3)),
+    p_value = format.pval(p_value, digits = 3, eps = 0.001)
+  ) |>
+  knitr::kable()
+```
 
 
 
+```{r}
+# Extract the common within-participant correlation and marginal variance
+extract_covariance <- function(fit, method_label) {
+
+  tibble(
+    Method = method_label,
+    Correlation = unname(
+      coef(fit$modelStruct$corStruct, unconstrained = FALSE)
+    ),
+    Variance = fit$sigma^2,
+    SD = fit$sigma
+  )
+}
+
+cov_results <- bind_rows(
+  extract_covariance(fit_ml, "ML"),
+  extract_covariance(fit_reml, "REML")
+)
+
+cov_results |>
+  knitr::kable(digits = 3)
+```
 
 
+GLS models with compound symmetry gave nearly identical results using ML and REML. Based on REML, participants with a baseline viral load of 10,000 had an estimated mean CD4 count of 779.27 at month 0 (95% CI: 744.12–814.42), with an average decline of 6.59 per month (95% CI: 5.92–7.26).  
 
+Each tenfold increase in baseline viral load was associated with a 82.21 lower mean CD4 count at month 0 (95% CI: 41.49–122.92 lower) and an additional decline of 0.88 per month (95% CI: 0.09–1.66; interaction p = 0.0286). Thus, higher baseline viral load was significantly associated with faster CD4 decline under the assumed covariance structure.  
+
+The estimated within-participant correlation was 0.569, and the marginal variance was 80,797.74 under REML, compared with 0.567 and 80,305.95 under ML.  
 
 
