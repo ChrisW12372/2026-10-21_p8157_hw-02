@@ -1,0 +1,218 @@
+---
+title: "2026-10-21_p8157_hw-02"
+author: "Chris"
+date: "2026-10-21"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    number_sections: TRUE
+    theme: cosmo
+    css: style.css
+---
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+
+load("data/MACS-VL.RData")
+df <- macsVL
+```
+
+
+
+# question a
+
+## overall variable conditions
+
+```{r}
+person <- df |>
+  group_by(id) |>
+  summarise(
+    vload = first(vload[!is.na(vload)], default = NA_real_),
+    n_visits = n_distinct(month[!is.na(cd4) & !is.na(month)]),
+    last_month = max(month, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+# baseline CD4
+baseline <- df |>
+  filter(month == 0) |>
+  select(id, baseline_cd4 = cd4)
+
+person <- person |>
+  left_join(baseline, by = "id")
+
+
+df |>
+  summarise(
+    n_participants = n_distinct(id),
+    n_observations = n(),
+    n_observed_cd4 = sum(!is.na(cd4))
+  )
+```
+
+
+```{r}
+summary_table <- person |>
+  select(n_visits, last_month, vload, baseline_cd4) |>
+  pivot_longer(
+    everything(),
+    names_to = "Variable",
+    values_to = "Value"
+  ) |>
+  group_by(Variable) |>
+  summarise(
+    N = sum(!is.na(Value)),
+    Missing = sum(is.na(Value)),
+    Mean = mean(Value, na.rm = TRUE),
+    SD = sd(Value, na.rm = TRUE),
+    Median = median(Value, na.rm = TRUE),
+    Q1 = quantile(Value, 0.25, na.rm = TRUE),
+    Q3 = quantile(Value, 0.75, na.rm = TRUE),
+    Min = min(Value, na.rm = TRUE),
+    Max = max(Value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+summary_table
+```
+
+
+
+The dataset included 225 participants and 1,684 observations, with no missing CD4 values in the recorded observations. Participants had a median of 8 visits (IQR: 7–9), and the median last follow-up time was 45 months (IQR: 42–47). Baseline CD4 was available for 210 participants, with a median of 761 (IQR: 574.5–944). Baseline viral load was available for all participants and was right-skewed, with a mean of 78,347 and a median of 24,573 (IQR: 7,928–91,195).  
+
+
+## baseline viral load
+
+
+```{r}
+# Extract one baseline viral load value per participant
+person <- df |>
+  group_by(id) |>
+  summarise(
+    vload = first(vload[!is.na(vload)], default = NA_real_),
+    .groups = "drop"
+  )
+
+# Check that all observed viral load values are positive
+stopifnot(all(person$vload > 0, na.rm = TRUE))
+
+# Calculate log10 viral load
+person <- person |>
+  mutate(log10_vload = log10(vload))
+
+# Plot viral load distributions on the original and log10 scales
+person |>
+  select(vload, log10_vload) |>
+  pivot_longer(
+    everything(),
+    names_to = "Scale",
+    values_to = "Viral_load"
+  ) |>
+  mutate(
+    Scale = factor(
+      Scale,
+      levels = c("vload", "log10_vload"),
+      labels = c("Baseline viral load", "Log10 baseline viral load")
+    )
+  ) |>
+  ggplot(aes(x = Viral_load)) +
+  geom_histogram(
+    bins = 25,
+    fill = "#4477AA",
+    color = "white",
+    na.rm = TRUE
+  ) +
+  facet_wrap(~ Scale, scales = "free_x") +
+  labs(x = NULL, y = "Number of participants") +
+  theme_minimal()
+```
+
+
+
+## speghatti plot
+
+```{r}
+# Define viral load groups using participant-level tertile cutoffs
+vl_cutoffs <- quantile(
+  person$vload,
+  probs = c(1 / 3, 2 / 3),
+  na.rm = TRUE,
+  names = FALSE
+)
+
+person <- person |>
+  mutate(
+    vl_group = cut(
+      vload,
+      breaks = c(-Inf, vl_cutoffs, Inf),
+      labels = c("Low viral load", "Middle viral load", "High viral load")
+    )
+  )
+
+# Add viral load groups to the longitudinal data
+df_plot <- df |>
+  left_join(
+    person |> select(id, vl_group),
+    by = "id"
+  ) |>
+  filter(
+    !is.na(vl_group),
+    !is.na(month),
+    !is.na(cd4)
+  ) |>
+  arrange(id, month)
+
+# Plot individual CD4 trajectories and group-specific smooth trends
+ggplot(df_plot, aes(x = month, y = cd4)) +
+  geom_line(
+    aes(group = id),
+    color = "grey60",
+    alpha = 0.35,
+    linewidth = 0.4
+  ) +
+  geom_smooth(
+    aes(group = 1),
+    method = "loess",
+    formula = y ~ x,
+    se = FALSE,
+    color = "#CC6677",
+    linewidth = 1.2
+  ) +
+  facet_wrap(~ vl_group) +
+  labs(
+    x = "Months since baseline",
+    y = "CD4 count",
+    title = "CD4 trajectories by baseline viral load"
+  ) +
+  theme_minimal()
+```
+
+
+Baseline viral load was strongly right-skewed, and the log10 transformation substantially reduced the skewness. CD4 counts generally declined over time in all three viral load groups, with considerable variation across individuals. The middle and high viral load groups showed greater overall declines than the low viral load group, suggesting a possible association between higher baseline viral load and faster CD4 decline.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
