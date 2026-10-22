@@ -1,14 +1,10 @@
 ---
-title: "2026-10-21_p8157_hw-02"
+title: "2026_10_21_p8157_hw_02"
 author: "Chris"
 date: "2026-10-21"
 output: 
-  html_document:
-    toc: TRUE
-    toc_float: TRUE
-    number_sections: TRUE
-    theme: cosmo
-    css: style.css
+  pdf_document:
+    latex_engine: xelatex
 ---
 
 The project is on GitHub: https://github.com/ChrisW12372/2026-10-21_p8157_hw-02.git
